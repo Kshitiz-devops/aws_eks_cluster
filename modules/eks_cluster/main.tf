@@ -5,6 +5,10 @@ terraform {
       source  = "hashicorp/aws"
       version = ">= 5.50"
     }
+    random = {
+      source  = "hashicorp/random"
+      version = ">= 3.5.1"
+    }
   }
 }
 
@@ -16,15 +20,17 @@ data "aws_kms_key" "ebs_default" {
 }
 
 locals {
-  aws_partition   = data.aws_partition.current.partition
-  account_id      = data.aws_caller_identity.current.account_id
-  ebs_kms_key     = var.disk_encryption_kms_key_arn != "" ? var.disk_encryption_kms_key_arn : data.aws_kms_key.ebs_default.arn
-  cluster_subnets = concat(var.private_subnet_ids)
+  aws_partition = data.aws_partition.current.partition
+  account_id    = data.aws_caller_identity.current.account_id
+  ebs_kms_key   = var.disk_encryption_kms_key_arn != "" ? var.disk_encryption_kms_key_arn : data.aws_kms_key.ebs_default.arn
+
+  # keep control plane in private subnets
+  cluster_subnets = var.private_subnet_ids
 
   tags = merge({
-    "Environment" = var.environment
-    "ManagedBy"   = "terraform"
-    "ClusterName" = var.cluster_name
+    Environment = var.environment
+    ManagedBy   = "terraform"
+    ClusterName = var.cluster_name
   }, var.additional_tags)
 }
 
@@ -32,78 +38,74 @@ resource "random_string" "suffix" {
   length  = 4
   special = false
   upper   = false
-
 }
+
 module "eks" {
-  # Official AWS EKS module (as requested)
+  # v21.x interface
   source  = "terraform-aws-modules/eks/aws"
-  version = "20.29.0"
+  version = "21.3.1"
 
-  cluster_name    = "${var.cluster_name}-${random_string.suffix.result}"
-  cluster_version = var.cluster_version
+  name               = "${var.cluster_name}-${random_string.suffix.result}"
+  kubernetes_version = var.cluster_version
 
-  # Endpoint access (prod-friendly: private on, public cidr-scoped toggle)
-  cluster_endpoint_private_access      = true
-  cluster_endpoint_public_access       = var.enable_public_endpoint
-  cluster_endpoint_public_access_cidrs = var.allowed_public_cidrs
+  endpoint_private_access      = true
+  endpoint_public_access       = var.enable_public_endpoint
+  endpoint_public_access_cidrs = var.allowed_public_cidrs
 
-  # IRSA
   enable_irsa              = true
   openid_connect_audiences = ["sts.amazonaws.com"]
 
-  # Control plane logs
-  cluster_enabled_log_types = var.cluster_enabled_log_types
+  enabled_log_types = var.enabled_log_types
 
-  # Envelope encryption (KMS for secrets)
-  cluster_encryption_config      = var.cluster_encryption_config
-  cluster_encryption_policy_path = var.iam_path
+  encryption_config = var.encryption_config
 
-  # Cluster IAM role (can be created here or passed in)
-  iam_role_arn                  = try(var.cluster_iam.iam_role_arn, null)
-  create_iam_role               = try(var.cluster_iam.create_iam_role, true)
-  iam_role_use_name_prefix      = try(var.cluster_iam.iam_role_use_name_prefix, true)
-  iam_role_name                 = try(var.cluster_iam.iam_role_name, substr("${var.cluster_name}-cluster", 0, 37), null)
-  iam_role_path                 = try(var.cluster_iam.iam_role_path, var.iam_path, "/")
-  iam_role_permissions_boundary = try(var.cluster_iam.iam_role_permissions_boundary, var.permissions_boundary_arn, null)
+  # Cluster IAM role — v21 uses top-level IAM vars (not object `cluster_iam.*`)
+  iam_role_arn                  = var.iam_role_arn
+  create_iam_role               = var.create_iam_role
+  iam_role_use_name_prefix      = var.iam_role_use_name_prefix
+  iam_role_name                 = var.iam_role_name != null ? var.iam_role_name : substr("${var.cluster_name}-cluster", 0, 37)
+  iam_role_path                 = var.iam_role_path
+  iam_role_permissions_boundary = var.iam_role_permissions_boundary
 
-  vpc_id                                     = var.vpc_id
-  control_plane_subnet_ids                   = local.cluster_subnets
-  cluster_service_ipv4_cidr                  = var.cluster_service_ipv4_cidr
-  cluster_security_group_id                  = var.cluster_security_group_id
-  cluster_additional_security_group_ids      = var.cluster_additional_sg_ids
-  create_cluster_security_group              = var.create_cluster_security_group
-  cluster_security_group_additional_rules    = var.cluster_sg_additional_rules
-  create_cluster_primary_security_group_tags = false
 
-  # EKS managed node groups (prod defaults → gp3 + encrypted, IRSA-ready)
-  eks_managed_node_group_defaults = {
-    ami_type               = var.node_ami_type
-    disk_size              = var.node_disk_size
-    enable_monitoring      = true
-    ebs_optimized          = true
-    create_launch_template = true
-    block_device_mappings = {
-      xvda = {
-        device_name = "/dev/xvda"
-        ebs = {
-          volume_size           = var.node_disk_size
-          volume_type           = "gp3"
-          encrypted             = true
-          kms_key_id            = local.ebs_kms_key
-          delete_on_termination = true
-        }
-      }
-    }
-    update_config = {
-      max_unavailable = 1
-    }
-    pre_bootstrap_user_data = var.node_pre_userdata
-    tags = merge({
-      "k8s.io/cluster-autoscaler/enabled"             = "true",
-      "k8s.io/cluster-autoscaler/${var.cluster_name}" = "owned",
-      "ClusterName"                                   = var.cluster_name
-    }, local.tags)
-  }
+  vpc_id                   = var.vpc_id
+  subnet_ids               = local.cluster_subnets
+  control_plane_subnet_ids = local.cluster_subnets
+
+  # ❗ v21 renames SG inputs
+  security_group_id                  = var.security_group_id
+  additional_security_group_ids      = var.additional_sg_ids
+  create_security_group              = var.create_security_group
+  security_group_additional_rules    = var.security_group_additional_rules
+  create_primary_security_group_tags = false
+
+  # EKS managed node groups (unchanged structure)
+  #   eks_managed_node_group_defaults = {
+  #     ami_type               = var.node_ami_type
+  #     disk_size              = var.node_disk_size
+  #     enable_monitoring      = true
+  #     ebs_optimized          = true
+  #     create_launch_template = true
+  #     block_device_mappings = {
+  #       xvda = {
+  #         device_name = "/dev/xvda"
+  #         ebs = {
+  #           volume_size           = var.node_disk_size
+  #           volume_type           = "gp3"
+  #           encrypted             = true
+  #           kms_key_id            = local.ebs_kms_key
+  #           delete_on_termination = true
+  #         }
+  #       }
+  #     }
+  #     update_config           = { max_unavailable = 1 }
+  #     pre_bootstrap_user_data = var.node_pre_userdata
+  #     tags = merge({
+  #       "k8s.io/cluster-autoscaler/enabled"             = "true",
+  #       "k8s.io/cluster-autoscaler/${var.cluster_name}" = "owned",
+  #       "ClusterName"                                   = var.cluster_name
+  #     }, local.tags)
+  #   }
 
   eks_managed_node_groups = var.node_groups
 
@@ -111,19 +113,21 @@ module "eks" {
   create_node_security_group           = var.create_node_security_group
   node_security_group_additional_rules = var.node_sg_additional_rules
 
-  # Core addons (use most recent)
-  cluster_addons = {
-    coredns    = { most_recent = true }
-    kube-proxy = { most_recent = true }
-    # Enable EBS CSI as an AWS-managed addon (strongly recommended in prod)
-    aws-ebs-csi-driver = {
-      most_recent = true
-    }
-  }
+  # ❗ v21 uses `addons` (not `cluster_addons`)
+  addons = merge({
+    coredns            = { most_recent = true }
+    kube-proxy         = { most_recent = true }
+    aws-ebs-csi-driver = { most_recent = true }
+  }, var.addons_overrides)
 
-  bootstrap_self_managed_addons = false
-  tags                          = local.tags
+  # ❗ v21 replaces `aws-auth` submodule with access entries
+  enable_cluster_creator_admin_permissions = var.enable_cluster_creator_admin_permissions
+  access_entries                           = var.access_entries
+
+  tags = local.tags
 }
+
+
 
 # Manage aws-auth map (role bindings)
 module "eks_auth" {

@@ -9,30 +9,39 @@ locals {
 module "eks_cluster" {
   source = "./modules/eks_cluster"
 
+  # Core
   cluster_name    = var.cluster_name
   cluster_version = var.cluster_version
   environment     = var.environment
 
-  vpc_id             = var.vpc_id
-  private_subnet_ids = var.private_subnet_ids
-  public_subnet_ids  = var.public_subnet_ids
+  # Networking
+  vpc_id                 = var.vpc_id
+  private_subnet_ids     = var.private_subnet_ids
+  enable_public_endpoint = var.enable_public_endpoint
+  allowed_public_cidrs   = var.allowed_public_cidrs
+  # If you expose service_ipv4_cidr in your wrapper, you can pass it here:
+  # service_ipv4_cidr = var.service_ipv4_cidr
 
-  enable_public_endpoint    = var.enable_public_endpoint
-  allowed_public_cidrs      = var.allowed_public_cidrs
-  cluster_service_ipv4_cidr = var.cluster_service_ipv4_cidr
+  # Security groups (v21 naming)
+  create_security_group      = true
+  create_node_security_group = true
+  # Optionally pass additional SGs/rules if you’ve surfaced them:
+  # additional_sg_ids               = var.additional_sg_ids
+  # security_group_additional_rules = var.security_group_additional_rules
+  # node_security_group_id          = var.node_security_group_id
+  # node_sg_additional_rules        = var.node_sg_additional_rules
 
-  # Security groups (let module create them by default)
-  create_cluster_security_group = true
-  create_node_security_group    = true
+  # Encryption (v21: encryption_config)
+  encryption_config = var.encryption_config
 
-  # Envelope encryption for K8s secrets
-  cluster_encryption_config = var.cluster_encryption_config
-
-  # Node groups (example: 2 MNGs across private subnets)
+  # Node groups
   node_groups = local.node_groups
 
+  # v21 access entries (preferred over aws-auth)
+  enable_cluster_creator_admin_permissions = var.enable_cluster_creator_admin_permissions
+  access_entries                           = var.access_entries
 
-  # aws-auth: map cluster admin + node role (node role comes from the IAM module)
+  # Legacy aws-auth (keep only if you still need it)
   aws_auth_roles = concat(
     [
       {
@@ -44,10 +53,14 @@ module "eks_cluster" {
     var.extra_aws_auth_roles
   )
 
-  iam_path                 = var.iam_path
-  permissions_boundary_arn = var.permissions_boundary_arn
-  additional_tags          = var.additional_tags
+  # IAM path / permissions boundary (v21 names)
+  iam_role_path                 = var.iam_role_path
+  iam_role_permissions_boundary = var.iam_role_permissions_boundary
+
+  # Tags
+  additional_tags = var.additional_tags
 }
+
 
 # Build OIDC trust document for IRSA roles
 data "aws_iam_policy_document" "oidc_trust" {
@@ -135,17 +148,17 @@ module "vpc_tags" {
 
 
 data "aws_eks_cluster" "this" {
-  name = module.eks.cluster_name
+  name = module.eks_cluster.cluster_name
 }
 
 data "aws_eks_cluster_auth" "this" {
-  name = module.eks.cluster_name
+  name = module.eks_cluster.cluster_name
 }
 
 module "helm_install" {
   source = "./modules/helm_install"
 
-  cluster_name       = module.eks.cluster_name
+  cluster_name       = module.eks_cluster.cluster_name
   cluster_endpoint   = data.aws_eks_cluster.this.endpoint
   cluster_ca_data    = data.aws_eks_cluster.this.certificate_authority[0].data
   cluster_auth_token = data.aws_eks_cluster_auth.this.token

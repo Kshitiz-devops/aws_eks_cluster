@@ -1,132 +1,224 @@
-variable "region" {
-  description = "AWS region where the EKS cluster and related resources will be deployed."
+########################################
+# Core / Environment
+########################################
+variable "cluster_name" {
+  description = "Base name for the EKS cluster."
   type        = string
 }
 
-variable "cluster_name" {
-  description = "Base name of the EKS cluster. A random suffix may be appended for uniqueness."
+variable "region" {
+  description = "AWS region to deploy to"
   type        = string
+
+}
+
+variable "cluster_version" {
+  description = "Kubernetes version to use (passed to the eks_cluster module)."
+  type        = string
+  default     = "1.30"
 }
 
 variable "environment" {
-  description = "Deployment environment (e.g., dev, staging, prod)."
+  description = "Environment tag applied to resources."
   type        = string
   default     = "prod"
 }
 
-variable "cluster_version" {
-  description = "Kubernetes version for the EKS control plane (e.g., 1.29, 1.30)."
-  type        = string
+variable "additional_tags" {
+  description = "Additional tags to apply to resources."
+  type        = map(string)
+  default     = {}
 }
 
+########################################
+# VPC / Networking
+########################################
 variable "vpc_id" {
-  description = "ID of the VPC where the EKS cluster and worker nodes will be provisioned."
+  description = "VPC ID in which to deploy the cluster."
   type        = string
 }
 
 variable "private_subnet_ids" {
-  description = "List of private subnet IDs used for EKS worker nodes and control plane."
+  description = "Private subnet IDs (used for control plane and private node groups)."
   type        = list(string)
 }
 
 variable "public_subnet_ids" {
-  description = "List of public subnet IDs used for load balancers or public-facing resources."
+  description = "Public subnet IDs (used when a node group sets subnet_type = \"public\")."
   type        = list(string)
+  default     = []
 }
 
 variable "enable_public_endpoint" {
-  description = "If true, allows the EKS control plane to be accessible via a public endpoint."
+  description = "Enable public access to the EKS API endpoint (recommend false in prod)."
   type        = bool
   default     = false
 }
 
 variable "allowed_public_cidrs" {
-  description = "List of CIDR blocks permitted to access the public API endpoint. Empty list means unrestricted if public access is enabled."
+  description = "CIDR blocks allowed to access the public API endpoint when enabled."
   type        = list(string)
   default     = []
+
+  # Validate only this variable (no cross-variable references allowed)
+  validation {
+    condition     = alltrue([for c in var.allowed_public_cidrs : can(cidrnetmask(c))])
+    error_message = "Each entry in allowed_public_cidrs must be a valid IPv4/IPv6 CIDR (e.g., 203.0.113.0/24)."
+  }
 }
 
-variable "cluster_service_ipv4_cidr" {
-  description = "Optional custom CIDR block for Kubernetes service IP addresses (e.g., 172.20.0.0/16). Leave null for AWS default."
-  type        = string
-  default     = null
+
+########################################
+# Encryption (v21: encryption_config)
+########################################
+variable "encryption_config" {
+  description = <<EOT
+EKS secrets encryption configuration (v21 style).
+Example:
+{
+  provider_key_arn = "arn:aws:kms:REGION:ACCOUNT:key/xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx",
+  resources        = ["secrets"]
+}
+EOT
+  type = object({
+    provider_key_arn = string
+    resources        = list(string)
+  })
+  default  = null
+  nullable = true
 }
 
+########################################
+# Node Groups (with subnet_type switch)
+########################################
 variable "node_groups" {
   description = <<EOT
-Map of EKS managed node groups. Each group defines scaling, instance types,
-capacity type, and subnet placement.
-
-- `subnet_type`: must be either "private" or "public".
-
+Map of EKS managed node groups. Each group must include `subnet_type` with value "private" or "public".
 Example:
-node_groups = {
-  on-demand-general = {
+{
+  on_demand = {
     min_size       = 2
     max_size       = 6
     desired_size   = 3
     instance_types = ["m6i.large"]
-    capacity_type  = "ON_DEMAND"
-    subnet_type    = "private"
+    capacity_type  = "ON_DEMAND"               # or "SPOT"
+    subnet_type    = "private"                  # "private" | "public"
     labels         = { workload = "general" }
     taints         = {}
   }
 }
 EOT
-  type        = map(any)
-  default     = {}
-}
-
-
-variable "cluster_encryption_config" {
-  description = <<EOT
-Configuration for envelope encryption of Kubernetes secrets using AWS KMS.
-Each object must include:
-  - provider_key_arn : ARN of the KMS key
-  - resources        : List of resources to encrypt (e.g., [\"secrets\"])
-EOT
-  type = list(object({
-    provider_key_arn = string
-    resources        = list(string)
+  type = map(object({
+    min_size       = number
+    max_size       = number
+    desired_size   = number
+    instance_types = list(string)
+    capacity_type  = string
+    subnet_type    = string
+    labels         = map(string)
+    taints = map(object({
+      key    = string
+      value  = string
+      effect = string # NO_SCHEDULE | NO_EXECUTE | PREFER_NO_SCHEDULE
+    }))
   }))
-  default = []
+  default = {}
+
+  validation {
+    condition     = alltrue([for _, g in var.node_groups : contains(["private", "public"], lower(g.subnet_type))])
+    error_message = "Each node group must set subnet_type to either \"private\" or \"public\"."
+  }
 }
 
+########################################
+# Access Management (v21 preferred)
+########################################
+variable "enable_cluster_creator_admin_permissions" {
+  description = "Bootstrap the current caller as cluster-admin via Access Entry."
+  type        = bool
+  default     = false
+}
+
+variable "access_entries" {
+  description = <<EOT
+EKS access entries (v21). Example:
+{
+  platform_admin = {
+    principal_arn = "arn:aws:iam::123456789012:role/PlatformAdmin"
+    type          = "STANDARD"
+    kubernetes_groups = ["system:masters"]
+    policy_associations = {
+      admin = {
+        policy_arn = "arn:aws:eks::aws:cluster-access-policy/AmazonEKSClusterAdminPolicy"
+        access_scope = { type = "cluster" }
+      }
+    }
+    tags = { team = "platform" }
+  }
+}
+EOT
+  type = map(object({
+    principal_arn     = string
+    type              = optional(string)
+    user_name         = optional(string)
+    kubernetes_groups = optional(list(string))
+    policy_associations = map(object({
+      policy_arn = string
+      access_scope = object({
+        type       = string
+        namespaces = optional(list(string))
+      })
+    }))
+    tags = optional(map(string))
+  }))
+  default = {}
+}
+
+########################################
+# (Optional) Legacy aws-auth compatibility
+########################################
 variable "admin_role_arn" {
-  description = "ARN of the IAM role that will be granted administrator access to the EKS cluster."
+  description = "Admin role ARN to map via legacy aws-auth (if still used)."
   type        = string
-}
-
-variable "iam_path" {
-  description = "Path under which IAM roles and policies will be created. Useful for compliance or organizational separation."
-  type        = string
-  default     = "/"
-}
-
-variable "permissions_boundary_arn" {
-  description = "Optional ARN of the IAM permissions boundary to apply to IAM roles."
-  type        = string
-  default     = null
-}
-
-variable "additional_tags" {
-  description = "Extra tags to apply to all resources created by this module (merged with defaults)."
-  type        = map(string)
-  default     = {}
+  default     = ""
 }
 
 variable "extra_aws_auth_roles" {
-  description = <<EOT
-Additional IAM role mappings for the aws-auth ConfigMap.
-Each mapping requires:
-  - rolearn  : IAM role ARN
-  - username : Kubernetes username to assign
-  - groups   : List of Kubernetes RBAC groups to map the role into
-EOT
+  description = "Extra role mappings for legacy aws-auth."
   type = list(object({
     rolearn  = string
     username = string
     groups   = list(string)
   }))
   default = []
+}
+
+########################################
+# IAM path / permissions boundary (passthroughs)
+########################################
+variable "iam_role_path" {
+  description = "Path for the cluster IAM role (passed to eks_cluster module)."
+  type        = string
+  default     = "/"
+}
+
+variable "iam_role_permissions_boundary" {
+  description = "Permissions boundary ARN for the cluster IAM role (passed to eks_cluster module)."
+  type        = string
+  default     = null
+  nullable    = true
+}
+
+# For the separate IAM module
+variable "iam_path" {
+  description = "Path for IAM resources created by the IAM submodule."
+  type        = string
+  default     = "/"
+}
+
+variable "permissions_boundary_arn" {
+  description = "Permissions boundary ARN for IAM roles created by the IAM submodule."
+  type        = string
+  default     = null
+  nullable    = true
 }
