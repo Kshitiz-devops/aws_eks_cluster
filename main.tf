@@ -11,7 +11,7 @@ module "eks_cluster" {
 
   cluster_name    = var.cluster_name
   cluster_version = var.cluster_version
-  environment     = "prod"
+  environment     = var.environment
 
   vpc_id             = var.vpc_id
   private_subnet_ids = var.private_subnet_ids

@@ -10,22 +10,22 @@ allowed_public_cidrs   = ["203.0.113.0/24"]
 
 cluster_service_ipv4_cidr = null
 node_groups = {
-  on-demand-general = {
+  sysgroup = {
     min_size       = 2
     max_size       = 6
     desired_size   = 3
-    instance_types = ["m6i.large"]
+    instance_types = ["m4.xlarge"]
     capacity_type  = "ON_DEMAND"
     subnet_type    = "private"
-    labels         = { workload = "general" }
+    labels         = { workload = "sysgroup" }
     taints         = {}
   }
 
-  spot-general = {
+  nodegroup1 = {
     min_size       = 0
     max_size       = 10
     desired_size   = 2
-    instance_types = ["m6i.large", "m5.large"]
+    instance_types = ["m4.xlarge"]
     capacity_type  = "SPOT"
     subnet_type    = "private" # default: private, safe
     labels         = { workload = "general-spot" }

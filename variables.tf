@@ -8,6 +8,12 @@ variable "cluster_name" {
   type        = string
 }
 
+variable "environment" {
+  description = "Deployment environment (e.g., dev, staging, prod)."
+  type        = string
+  default     = "prod"
+}
+
 variable "cluster_version" {
   description = "Kubernetes version for the EKS control plane (e.g., 1.29, 1.30)."
   type        = string

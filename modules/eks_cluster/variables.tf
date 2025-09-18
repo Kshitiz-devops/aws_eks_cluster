@@ -86,7 +86,17 @@ variable "create_node_security_group" {
 
 variable "node_sg_additional_rules" {
   description = "Additional rules for the node security group."
-  type        = map(any)
+  type = map(object({
+    description      = string
+    protocol         = string
+    from_port        = number
+    to_port          = number
+    type             = string
+    cidr_blocks      = optional(list(string))
+    ipv6_cidr_blocks = optional(list(string))
+    self             = optional(bool)
+  }))
+
   default = {
     ingress_self_all = {
       description = "Allow node-to-node communication on all ports/protocols."
@@ -108,6 +118,7 @@ variable "node_sg_additional_rules" {
     }
   }
 }
+
 
 variable "cluster_enabled_log_types" {
   description = "List of EKS control plane log types to enable (API, Audit, Authenticator, ControllerManager, Scheduler)."
