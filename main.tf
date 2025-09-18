@@ -7,7 +7,7 @@ locals {
 }
 
 module "eks_cluster" {
-  source = "/modules/eks_cluster"
+  source = "./modules/eks_cluster"
 
   cluster_name    = var.cluster_name
   cluster_version = var.cluster_version
@@ -73,7 +73,7 @@ locals {
 }
 
 module "iam" {
-  source = "/modules/iam"
+  source = "./modules/iam"
 
   cluster_name               = var.cluster_name
   iam_path                   = var.iam_path
@@ -87,7 +87,7 @@ module "iam" {
 
 # Optionally tag VPC/subnets for K8s ELBs
 module "vpc_tags" {
-  source = "/modules/vpc_tags"
+  source = "./modules/vpc_tags"
 
   cluster_name       = var.cluster_name
   vpc_id             = var.vpc_id
