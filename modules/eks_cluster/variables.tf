@@ -25,10 +25,10 @@ variable "private_subnet_ids" {
   type        = list(string)
 }
 
-variable "public_subnet_ids" {
-  description = "List of public subnet IDs for the EKS cluster."
-  type        = list(string)
-}
+# variable "public_subnet_ids" {
+#   description = "List of public subnet IDs for the EKS cluster."
+#   type        = list(string)
+# }
 
 variable "enable_public_endpoint" {
   description = "Whether to enable public access to the EKS cluster endpoint."

@@ -19,7 +19,7 @@ locals {
   aws_partition   = data.aws_partition.current.partition
   account_id      = data.aws_caller_identity.current.account_id
   ebs_kms_key     = var.disk_encryption_kms_key_arn != "" ? var.disk_encryption_kms_key_arn : data.aws_kms_key.ebs_default.arn
-  cluster_subnets = concat(var.private_subnet_ids, var.public_subnet_ids)
+  cluster_subnets = concat(var.private_subnet_ids)
 
   tags = merge({
     "Environment" = var.environment

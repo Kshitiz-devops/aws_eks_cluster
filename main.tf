@@ -68,9 +68,46 @@ data "aws_iam_policy_document" "oidc_trust" {
 
 # Canonical policies for ALB + EBS CSI (kept as files or templatefile()s)
 locals {
-  alb_policy_json     = file("${path.module}/policies/aws-load-balancer-controller.json")
-  ebs_csi_policy_json = file("${path.module}/policies/ebs-csi-controller.json")
+  alb_policy_json = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect = "Allow"
+        Action = [
+          "elasticloadbalancing:*",
+          "ec2:Describe*",
+          "ec2:AuthorizeSecurityGroupIngress",
+          "ec2:RevokeSecurityGroupIngress",
+          "ec2:CreateSecurityGroup",
+          "ec2:DeleteSecurityGroup",
+          "ec2:CreateTags",
+          "ec2:DeleteTags"
+        ]
+        Resource = "*"
+      }
+    ]
+  })
+
+  ebs_csi_policy_json = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect = "Allow"
+        Action = [
+          "ec2:AttachVolume",
+          "ec2:DetachVolume",
+          "ec2:CreateVolume",
+          "ec2:DeleteVolume",
+          "ec2:DescribeVolume*",
+          "ec2:CreateTags",
+          "ec2:DeleteTags"
+        ]
+        Resource = "*"
+      }
+    ]
+  })
 }
+
 
 module "iam" {
   source = "./modules/iam"
@@ -89,11 +126,12 @@ module "iam" {
 module "vpc_tags" {
   source = "./modules/vpc_tags"
 
-  cluster_name       = var.cluster_name
-  vpc_id             = var.vpc_id
-  public_subnet_ids  = var.public_subnet_ids
+  cluster_name = var.cluster_name
+  vpc_id       = var.vpc_id
+  #   public_subnet_ids  = var.public_subnet_ids
   private_subnet_ids = var.private_subnet_ids
 }
+
 
 
 data "aws_eks_cluster" "this" {
