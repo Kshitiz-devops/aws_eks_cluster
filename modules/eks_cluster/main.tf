@@ -115,16 +115,6 @@ module "eks" {
   cluster_addons = {
     coredns    = { most_recent = true }
     kube-proxy = { most_recent = true }
-    vpc-cni = {
-      most_recent    = true
-      before_compute = true
-      configuration_values = jsonencode({
-        env = merge(var.enable_vpc_cni_prefix_delegation ? {
-          ENABLE_PREFIX_DELEGATION = "true"
-          WARM_PREFIX_TARGET       = "1"
-        } : {})
-      })
-    }
     # Enable EBS CSI as an AWS-managed addon (strongly recommended in prod)
     aws-ebs-csi-driver = {
       most_recent = true
@@ -165,3 +155,5 @@ data "aws_iam_policy_document" "cluster_assume_role" {
     }
   }
 }
+
+

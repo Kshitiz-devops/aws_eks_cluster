@@ -1,0 +1,62 @@
+# Cilium Helm values for AWS EKS
+# Reference: https://docs.cilium.io/en/stable/helm/
+
+# Deploy Cilium as the primary CNI plugin
+cni:
+  exclusive: true
+
+# Use AWS ENI (replaces VPC CNI)
+eni:
+  enabled: true
+
+# Enable kube-proxy replacement (for direct datapath)
+kubeProxyReplacement: strict
+
+# Native routing for pod traffic
+routingMode: native
+
+# Automatically detect IPAM mode (ENI in AWS)
+ipam:
+  mode: eni
+
+# Enable Hubble observability (monitoring, flow visibility)
+hubble:
+  enabled: true
+  metrics:
+    enabled:
+      - dns
+      - drop
+      - tcp
+      - flow
+      - port-distribution
+      - icmp
+      - http
+  relay:
+    enabled: true
+  ui:
+    enabled: true
+
+# Set resource requests/limits (tune for production scale)
+resources:
+  requests:
+    cpu: 200m
+    memory: 512Mi
+  limits:
+    cpu: 1
+    memory: 1Gi
+
+# Enable Prometheus/Grafana metrics export
+prometheus:
+  enabled: true
+operator:
+  prometheus:
+    enabled: true
+
+# AWS-specific tuning
+enableIPv4Masquerade: true
+enableIPv6: false
+enableNodePort: true
+
+# Tag pods with cluster identity
+cluster:
+  name: ${CLUSTER_NAME}

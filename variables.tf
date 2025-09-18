@@ -46,6 +46,32 @@ variable "cluster_service_ipv4_cidr" {
   default     = null
 }
 
+variable "node_groups" {
+  description = <<EOT
+Map of EKS managed node groups. Each group defines scaling, instance types,
+capacity type, and subnet placement.
+
+- `subnet_type`: must be either "private" or "public".
+
+Example:
+node_groups = {
+  on-demand-general = {
+    min_size       = 2
+    max_size       = 6
+    desired_size   = 3
+    instance_types = ["m6i.large"]
+    capacity_type  = "ON_DEMAND"
+    subnet_type    = "private"
+    labels         = { workload = "general" }
+    taints         = {}
+  }
+}
+EOT
+  type        = map(any)
+  default     = {}
+}
+
+
 variable "cluster_encryption_config" {
   description = <<EOT
 Configuration for envelope encryption of Kubernetes secrets using AWS KMS.

@@ -130,11 +130,6 @@ variable "disk_encryption_kms_key_arn" {
   default     = ""
 }
 
-variable "enable_vpc_cni_prefix_delegation" {
-  description = "Enable prefix delegation in VPC CNI to increase pod density per node."
-  type        = bool
-  default     = true
-}
 
 variable "node_ami_type" {
   description = "AMI type for worker nodes (e.g., AL2_x86_64, BOTTLEROCKET_x86_64)."
@@ -214,4 +209,10 @@ variable "additional_tags" {
   description = "Additional tags to apply to all resources."
   type        = map(string)
   default     = {}
+}
+
+variable "cilium_version" {
+  description = "Cilium Helm chart version to install"
+  type        = string
+  default     = "1.16.1"
 }

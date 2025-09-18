@@ -9,6 +9,29 @@ enable_public_endpoint = false
 allowed_public_cidrs   = ["203.0.113.0/24"]
 
 cluster_service_ipv4_cidr = null
+node_groups = {
+  on-demand-general = {
+    min_size       = 2
+    max_size       = 6
+    desired_size   = 3
+    instance_types = ["m6i.large"]
+    capacity_type  = "ON_DEMAND"
+    subnet_type    = "private"
+    labels         = { workload = "general" }
+    taints         = {}
+  }
+
+  spot-general = {
+    min_size       = 0
+    max_size       = 10
+    desired_size   = 2
+    instance_types = ["m6i.large", "m5.large"]
+    capacity_type  = "SPOT"
+    subnet_type    = "private" # default: private, safe
+    labels         = { workload = "general-spot" }
+    taints         = {}
+  }
+}
 
 # KMS key to encrypt K8s secrets
 cluster_encryption_config = [

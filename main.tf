@@ -1,4 +1,10 @@
-
+locals {
+  node_groups = {
+    for name, group in var.node_groups : name => merge(group, {
+      subnet_ids = group.subnet_type == "public" ? var.public_subnet_ids : var.private_subnet_ids
+    })
+  }
+}
 
 module "eks_cluster" {
   source = "/modules/eks_cluster"
@@ -23,28 +29,8 @@ module "eks_cluster" {
   cluster_encryption_config = var.cluster_encryption_config
 
   # Node groups (example: 2 MNGs across private subnets)
-  node_groups = {
-    on-demand-general = {
-      min_size       = 2
-      max_size       = 6
-      desired_size   = 3
-      instance_types = ["m6i.large"]
-      capacity_type  = "ON_DEMAND"
-      subnet_ids     = var.private_subnet_ids
-      labels         = { "workload" = "general" }
-      taints         = {}
-    }
-    spot-general = {
-      min_size       = 0
-      max_size       = 10
-      desired_size   = 2
-      instance_types = ["m6i.large", "m5.large"]
-      capacity_type  = "SPOT"
-      subnet_ids     = var.private_subnet_ids
-      labels         = { "workload" = "general-spot" }
-      taints         = {}
-    }
-  }
+  node_groups = local.node_groups
+
 
   # aws-auth: map cluster admin + node role (node role comes from the IAM module)
   aws_auth_roles = concat(
@@ -58,10 +44,9 @@ module "eks_cluster" {
     var.extra_aws_auth_roles
   )
 
-  iam_path                         = var.iam_path
-  permissions_boundary_arn         = var.permissions_boundary_arn
-  additional_tags                  = var.additional_tags
-  enable_vpc_cni_prefix_delegation = true
+  iam_path                 = var.iam_path
+  permissions_boundary_arn = var.permissions_boundary_arn
+  additional_tags          = var.additional_tags
 }
 
 # Build OIDC trust document for IRSA roles
@@ -108,4 +93,32 @@ module "vpc_tags" {
   vpc_id             = var.vpc_id
   public_subnet_ids  = var.public_subnet_ids
   private_subnet_ids = var.private_subnet_ids
+}
+
+
+data "aws_eks_cluster" "this" {
+  name = module.eks.cluster_name
+}
+
+data "aws_eks_cluster_auth" "this" {
+  name = module.eks.cluster_name
+}
+
+module "helm_install" {
+  source = "./modules/helm_install"
+
+  cluster_name       = module.eks.cluster_name
+  cluster_endpoint   = data.aws_eks_cluster.this.endpoint
+  cluster_ca_data    = data.aws_eks_cluster.this.certificate_authority[0].data
+  cluster_auth_token = data.aws_eks_cluster_auth.this.token
+
+  charts = {
+    cilium = {
+      chart     = "cilium"
+      repo      = "https://helm.cilium.io/"
+      version   = "1.16.1"
+      namespace = "kube-system"
+      values    = [file("${path.module}/helm_values/cilium.yaml")]
+    }
+  }
 }
