@@ -118,7 +118,23 @@ module "helm_install" {
       repo      = "https://helm.cilium.io/"
       version   = "1.16.1"
       namespace = "kube-system"
-      values    = [file("${path.module}/helm_values/cilium.yaml")]
+      values = [yamlencode({
+        kubeProxyReplacement = "strict"
+        securityContext = {
+          capabilities = {
+            ciliumAgent      = ["CHOWN", "KILL", "NET_ADMIN", "NET_RAW", "IPC_LOCK", "SYS_ADMIN", "SYS_RESOURCE", "DAC_OVERRIDE", "FOWNER", "SETGID", "SETUID"]
+            cleanCiliumState = ["NET_ADMIN", "SYS_ADMIN"]
+          }
+          privileged = true
+        }
+        hostServices = { enabled = false }
+        externalIPs  = { enabled = true }
+        nodePort     = { enabled = true }
+        hostPort     = { enabled = true }
+        l7Proxy      = { enabled = true }
+        ipam         = { mode = "kubernetes" }
+      })]
     }
   }
 }
+
